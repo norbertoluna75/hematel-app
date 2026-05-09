@@ -542,11 +542,18 @@ async function loadSheets() {
     const text = await r.text();
     const rows = parseCSV(text);
     if (rows.length < 2) throw new Error('Planilla vacía');
-    const hdrs = rows[0].map(h => h.toLowerCase().trim());
-    const idx = { nombre: hdrs.indexOf('nombre'), codigo: hdrs.indexOf('codigo'), categoria: hdrs.indexOf('categoria'), descripcion: hdrs.indexOf('descripcion'), precio: hdrs.indexOf('precio'), foto: hdrs.indexOf('foto') };
-    catalog = rows.slice(1).filter(r => r.some(c=>c.trim())).map(r => ({
+    const hdrs = rows[0].map(h => h.toLowerCase().trim().replace(/[^a-z_]/g,''));
+    const idx = {
+      nombre: hdrs.indexOf('nombre'), codigo: hdrs.indexOf('codigo'),
+      categoria: hdrs.indexOf('categoria'), descripcion: hdrs.indexOf('descripcion'),
+      precio: hdrs.indexOf('precio'), prestaciones: hdrs.indexOf('prestaciones'),
+      foto: hdrs.indexOf('foto')
+    };
+    catalog = rows.slice(1).filter(r => r.some(c=>c.trim()) && (r[idx.nombre]||'').trim()).map(r => ({
       nombre: r[idx.nombre]||'', codigo: r[idx.codigo]||'', categoria: r[idx.categoria]||'General',
-      descripcion: r[idx.descripcion]||'', precio: parseFloat(r[idx.precio])||0, foto: r[idx.foto]||''
+      descripcion: r[idx.descripcion]||'', precio: parseFloat((r[idx.precio]||'0').replace(/[^0-9.]/g,''))||0,
+      prestaciones: idx.prestaciones>=0 ? (r[idx.prestaciones]||'') : '',
+      foto: idx.foto>=0 ? (r[idx.foto]||'') : ''
     }));
     localStorage.setItem('hematel_url', url);
     st.innerHTML = `<div class="alert alert-ok">✅ ${catalog.length} productos cargados.</div>`;
@@ -566,16 +573,20 @@ function loadDemo() {
 }
 
 function parseCSV(text) {
-  return text.split('\n').map(line => {
+  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  return lines.map(line => {
     const res=[]; let cur=''; let inQ=false;
     for (let i=0; i<line.length; i++) {
       const ch=line[i];
-      if (ch==='"') inQ=!inQ;
+      if (ch==='"') {
+        if (inQ && line[i+1]==='"') { cur+='"'; i++; }
+        else inQ=!inQ;
+      }
       else if (ch===',' && !inQ) { res.push(cur.trim()); cur=''; }
       else cur+=ch;
     }
     res.push(cur.trim()); return res;
-  }).filter(r=>r.length>1||r[0]);
+  }).filter(r=>r.length>1||(r[0]&&r[0].trim()));
 }
 
 // ═══════ EQUIPOS EDITOR ═══════
@@ -751,7 +762,11 @@ function renderFichaGrid() {
 function addFichaFromCatalog() {
   if (fichaSelectedIdx === null) { alert('Seleccioná un equipo'); return; }
   const p = catalog[fichaSelectedIdx];
-  addFicha({ ...p, prestaciones: p.descripcion ? p.descripcion.split('.').filter(s=>s.trim()).map(s=>s.trim()) : ['','','',''] });
+  // Use prestaciones column if available, otherwise split descripcion by periods
+  const prests = p.prestaciones && p.prestaciones.trim()
+    ? p.prestaciones.split('|').map(s=>s.trim()).filter(s=>s)
+    : (p.descripcion ? p.descripcion.split('.').filter(s=>s.trim()).map(s=>s.trim()) : ['','','','']);
+  addFicha({ ...p, prestaciones: prests });
   closeFichaModal();
 }
 
